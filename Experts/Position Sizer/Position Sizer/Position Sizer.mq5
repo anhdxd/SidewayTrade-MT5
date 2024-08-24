@@ -160,6 +160,15 @@ input bool PrefillAdditionalTPsBasedOnMain = true; // Prefill additional TPs bas
 
 CPositionSizeCalculator* ExtDialog;
 
+// Zigzag var
+#define PATH_ZZ "Indicators\\Examples\\ZigZag.ex5" // Zigzag path
+#define I_ZZ "::" + PATH_ZZ                        // Zigzag indicator
+#resource "\\" + PATH_ZZ                           // Zigzag resource
+int ZZ_handle;
+double ZZ_Z[];
+double ZZ_H[];
+double ZZ_L[];
+
 // Global variables:
 bool Dont_Move_the_Panel_to_Default_Corner_X_Y = true;
 uint LastRecalculationTime = 0;
@@ -175,8 +184,27 @@ int OldTakeProfitsNumber = -1;
 string SymbolForTrading;
 int Mouse_Last_X = 0, Mouse_Last_Y = 0; // For SL/TP hotkeys.
 
+int BuffSize = 50;
 int OnInit()
 {
+
+    // Set show zigzag and fibo
+
+    ZZ_handle = iCustom(NULL, 0, I_ZZ, 8, 5, 2); // 8 for m5
+
+    int subwindow = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
+    //--- now make an attempt resulting in error
+    if (!ChartIndicatorAdd(0, 0, ZZ_handle))
+        PrintFormat("Failed to add zigzag indicator on %d chart window. Error code  %d",
+                    subwindow, GetLastError());
+
+    if (ZZ_handle == INVALID_HANDLE)
+    {
+        Print("Runtime error = ", GetLastError());
+        return (INIT_FAILED);
+    }
+
+    /// Posotion size calculator
     if (DarkMode)
     {
         CONTROLS_EDIT_COLOR_ENABLE  = DARKMODE_EDIT_BG_COLOR;
@@ -527,6 +555,7 @@ int OnInit()
         }
     }
 
+    sets.EntryType = 1;
     // If symbol change with a reset was enacted.
     if (is_InitControlsValues_required) ExtDialog.InitControlsValues();
 
@@ -582,7 +611,56 @@ void OnDeinit(const int reason)
 
 void OnTick()
 {
+    if (CopyBuffer(ZZ_handle, 0, 0, BuffSize, ZZ_Z) <= 0)
+        return;
+    ArraySetAsSeries(ZZ_Z, true);
+    if (CopyBuffer(ZZ_handle, 1, 0, BuffSize, ZZ_H) <= 0)
+        return;
+    ArraySetAsSeries(ZZ_H, true);
+    if (CopyBuffer(ZZ_handle, 2, 0, BuffSize, ZZ_L) <= 0)
+        return;
+    ArraySetAsSeries(ZZ_L, true);
+
+    // Khai báo biến để lưu giá trị và vị trí
+    double nearestNonZeroValue_H, nearestNonZeroValue_L;
+    int nearestNonZeroIndex_H, nearestNonZeroIndex_L;
+
+    FindNthNonZeroWithIndex(ZZ_Z, BuffSize, 3, nearestNonZeroValue_H, nearestNonZeroIndex_H);
+    FindNthNonZeroWithIndex(ZZ_Z, BuffSize, 2, nearestNonZeroValue_L, nearestNonZeroIndex_L);
+
+    // Giá trị thời gian và giá của hai điểm
+    datetime time1 = iTime(Symbol(), 0, nearestNonZeroIndex_H); // Thời gian điểm 1 (cách đây 10 thanh)
+    double price1 = nearestNonZeroValue_H;   // Giá điểm 1 (giá thấp nhất của thanh cách đây 10 thanh)
+    datetime time2 = iTime(Symbol(), 0, nearestNonZeroIndex_L);  // Thời gian điểm 2 (thanh hiện tại)
+    double price2 = nearestNonZeroValue_L;   // Giá điểm 2 (giá cao nhất của thanh hiện tại)
+    // Gọi hàm vẽ Fibonacci Retracement
+    const string name = "FiboLevels";
+    DrawFibonacciRetracement("FiboLevels", time1, price1, time2, price2);
+    
+    double fibo_0_price = ObjectGetDouble(0, "FiboLevels", OBJPROP_PRICE, 0);
+    double fibo_1_price = ObjectGetDouble(0, "FiboLevels", OBJPROP_PRICE, 1);
+
+    double fibo_1_5_price = fibo_1_price - (fibo_1_price - fibo_0_price) * 1.5;
+    double fibo_2_price = fibo_1_price - (fibo_1_price - fibo_0_price) * 2;
+
+    // GUI
+    sets.EntryLevel = fibo_1_5_price;
+    sets.StopLossLevel = fibo_2_price;
+    if (tEntryLevel != sets.EntryLevel)
+    {
+        // Check and adjust for TickSize granularity.
+        if (TickSize > 0) sets.EntryLevel = NormalizeDouble(MathRound(sets.EntryLevel / TickSize) * TickSize, _Digits);
+        tEntryLevel = sets.EntryLevel;
+        ObjectSetDouble(ChartID(), ObjectPrefix + "EntryLine", OBJPROP_PRICE, sets.EntryLevel);
+    }
+
+    if (tStopLossLevel != sets.StopLossLevel)
+    {
+        tStopLossLevel = sets.StopLossLevel;
+        ObjectSetDouble(ChartID(), ObjectPrefix + "StopLossLine", OBJPROP_PRICE, sets.StopLossLevel);
+    }
     ExtDialog.RefreshValues();
+
 
     if (sets.TrailingStopPoints > 0) DoTrailingStop();
 }
@@ -932,3 +1010,141 @@ void OnTimer()
     ChartRedraw();
 }
 //+------------------------------------------------------------------+
+
+
+//+------------------------------------------------------------------+
+// Hàm vẽ Fibonacci Retracement
+void DrawFibonacciRetracement(const string name, datetime time1, double price1, datetime time2, double price2)
+{
+    // Xóa đối tượng Fibonacci nếu nó đã tồn tại
+    if (ObjectFind(0, name) != -1)
+        ObjectDelete(0, name);
+
+    // Tạo đối tượng Fibonacci Retracement
+    if (ObjectCreate(0, name, OBJ_FIBO, 0, time1, price1, time2, price2))
+    {
+        double values[] = {0.0, 0.5, 1.0, 1.5, 1.786, 2.0};
+        color colors[] = {clrBlue, clrBlue, clrBlue, clrBlue, clrBlue, clrBlue};
+        ENUM_LINE_STYLE styles[] = {STYLE_SOLID, STYLE_SOLID, STYLE_SOLID, STYLE_SOLID, STYLE_SOLID, STYLE_SOLID};
+        int widths[] = {1, 1, 1, 1, 1, 1};
+        FiboLevelsSet(6, values, colors, styles, widths, 0, name);
+    }
+    else
+    {
+        Print("Lỗi khi tạo Fibonacci Retracement: ", GetLastError());
+    }
+}
+
+bool FiboLevelsSet(int levels,                       // number of level lines
+                   double &values[],                 // values of level lines
+                   color &colors[],                  // color of level lines
+                   ENUM_LINE_STYLE &styles[],        // style of level lines
+                   int &widths[],                    // width of level lines
+                   const long chart_ID = 0,          // chart's ID
+                   const string name = "FiboLevels") // object name
+{
+    //--- check array sizes
+    if (levels != ArraySize(colors) || levels != ArraySize(styles) || levels != ArraySize(widths))
+    {
+        Print(__FUNCTION__, ": array length does not correspond to the number of levels, error!");
+        return (false);
+    }
+    //--- set the number of levels
+    ObjectSetInteger(chart_ID, name, OBJPROP_LEVELS, levels);
+    //--- set the properties of levels in the loop
+    for (int i = 0; i < levels; i++)
+    {
+        //--- level value
+        ObjectSetDouble(chart_ID, name, OBJPROP_LEVELVALUE, i, values[i]);
+        //--- level color
+        ObjectSetInteger(chart_ID, name, OBJPROP_LEVELCOLOR, i, colors[i]);
+        //--- level style
+        ObjectSetInteger(chart_ID, name, OBJPROP_LEVELSTYLE, i, styles[i]);
+        //--- level width
+        ObjectSetInteger(chart_ID, name, OBJPROP_LEVELWIDTH, i, widths[i]);
+        //--- level description
+        ObjectSetString(chart_ID, name, OBJPROP_LEVELTEXT, i, DoubleToString(100 * values[i], 1));
+    }
+    //--- successful execution
+    return (true);
+}
+
+//+------------------------------------------------------------------+
+//| Delete Fibonacci Retracement                                     |
+//+------------------------------------------------------------------+
+bool FiboLevelsDelete(const long chart_ID = 0,          // chart's ID
+                      const string name = "FiboLevels") // object name
+{
+    //--- reset the error value
+    ResetLastError();
+    //--- delete the object
+    if (!ObjectDelete(chart_ID, name))
+    {
+        Print(__FUNCTION__,
+              ": failed to delete \"Fibonacci Retracement\"! Error code = ", GetLastError());
+        return (false);
+    }
+    //--- successful execution
+    return (true);
+}
+
+// Hàm để lấy giá trị giá của các mức Fibonacci
+bool GetFiboLevelPrice(const string name, int level_index, double &price)
+{
+    // Lấy giá trị giá của mức Fibonacci dựa trên chỉ số level_index
+    // Sử dụng phiên bản thứ 2 của ObjectGetDouble với biến tham chiếu price
+    if (ObjectGetDouble(0, name, OBJPROP_LEVELVALUE , level_index, price))
+    {
+        return true; // Thành công
+    }
+    else
+    {
+        Print("Không thể lấy giá trị mức Fibonacci: ", GetLastError());
+        return false; // Thất bại
+    }
+}
+//+-------------------------------------------------------------------
+// 
+// Tìm giá trị khác 0 gần nhất và vị trí của nó trong mảng
+void FindNearestNonZeroWithIndex(double &array[], int size, double &value, int &index)
+{
+    // Khởi tạo giá trị trả về
+    value = 0;
+    index = -1;
+    
+    // Duyệt mảng từ đầu để tìm giá trị khác 0
+    for (int i = 0; i < size; i++)
+    {
+        if (array[i] != 0)
+        {
+            value = array[i];
+            index = i;
+            return; // Kết thúc khi tìm thấy giá trị khác 0 đầu tiên
+        }
+    }
+}
+// Tìm giá trị khác 0 thứ n và vị trí của nó trong mảng
+void FindNthNonZeroWithIndex(double &array[], int size, int n, double &value, int &index)
+{
+    // Khởi tạo giá trị trả về
+    value = 0;
+    index = -1;
+    
+    // Đếm số giá trị khác 0 đã tìm thấy
+    int count = 0;
+    
+    // Duyệt mảng từ đầu để tìm giá trị khác 0
+    for (int i = 0; i < size; i++)
+    {
+        if (array[i] != 0)
+        {
+            count++;
+            if (count == n)
+            {
+                value = array[i];
+                index = i;
+                return; // Kết thúc khi tìm thấy giá trị khác 0 thứ n
+            }
+        }
+    }
+}

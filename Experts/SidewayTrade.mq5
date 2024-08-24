@@ -50,7 +50,7 @@ input int TimerInterval = 30;                    // Timer Interval (Seconds)
 input ulong MagicNumber = 2000;                  // Magic Number
 input ENUM_FILLING Filling = FILLING_DEFAULT;    // Order Filling
 
-int BuffSize = 4;
+int BuffSize = 100;
 
 GerEA ea;
 datetime lastCandle;
@@ -129,7 +129,7 @@ int OnInit()
     if (RiskMode == RISK_FIXED_VOL || RiskMode == RISK_MIN_AMOUNT)
         ea.risk = Risk;
 
-    ZZ_handle = iCustom(NULL, 0, I_ZZ, 6, 5, 2);
+    ZZ_handle = iCustom(NULL, 0, I_ZZ, 8, 5, 2); // 8 for m5
 
     int subwindow = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
     //--- now make an attempt resulting in error
@@ -177,17 +177,9 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void OnTick()
 {
-    if (lastCandle != Time(0))
+    if (true)//(lastCandle != Time(0))
     {
         lastCandle = Time(0);
-        // Giá trị thời gian và giá của hai điểm
-        datetime time1 = iTime(Symbol(), 0, 10); // Thời gian điểm 1 (cách đây 10 thanh)
-        double price1 = iLow(Symbol(), 0, 10);   // Giá điểm 1 (giá thấp nhất của thanh cách đây 10 thanh)
-        datetime time2 = iTime(Symbol(), 0, 0);  // Thời gian điểm 2 (thanh hiện tại)
-        double price2 = iHigh(Symbol(), 0, 0);   // Giá điểm 2 (giá cao nhất của thanh hiện tại)
-
-        // Gọi hàm vẽ Fibonacci Retracement
-        DrawFibonacciRetracement("FiboLevels", time1, price1, time2, price2);
 
         //    SetIndexBuffer(0,ZigzagBuffer,INDICATOR_DATA);
         //    SetIndexBuffer(1,HighMapBuffer,INDICATOR_CALCULATIONS);
@@ -195,13 +187,38 @@ void OnTick()
         if (CopyBuffer(ZZ_handle, 0, 0, BuffSize, ZZ_Z) <= 0)
             return;
         ArraySetAsSeries(ZZ_Z, true);
+
         if (CopyBuffer(ZZ_handle, 1, 0, BuffSize, ZZ_H) <= 0)
             return;
         ArraySetAsSeries(ZZ_H, true);
+
         if (CopyBuffer(ZZ_handle, 2, 0, BuffSize, ZZ_L) <= 0)
             return;
         ArraySetAsSeries(ZZ_L, true);
+
+        //
+            // Khai báo biến để lưu giá trị và vị trí
+        double nearestNonZeroValue_H, nearestNonZeroValue_L;
+        int nearestNonZeroIndex_H, nearestNonZeroIndex_L;
+
+        // FindNthNonZeroWithIndex(ZZ_H, BuffSize, 2, nearestNonZeroValue_H, nearestNonZeroIndex_H);
+        // FindNthNonZeroWithIndex(ZZ_L, BuffSize, 2, nearestNonZeroValue_L, nearestNonZeroIndex_L);
+
+        FindNthNonZeroWithIndex(ZZ_Z, BuffSize, 3, nearestNonZeroValue_H, nearestNonZeroIndex_H);
+        FindNthNonZeroWithIndex(ZZ_Z, BuffSize, 2, nearestNonZeroValue_L, nearestNonZeroIndex_L);
+
+
+        // Giá trị thời gian và giá của hai điểm
+        datetime time1 = iTime(Symbol(), 0, nearestNonZeroIndex_H); // Thời gian điểm 1 (cách đây 10 thanh)
+        double price1 = nearestNonZeroValue_H;   // Giá điểm 1 (giá thấp nhất của thanh cách đây 10 thanh)
+        datetime time2 = iTime(Symbol(), 0, nearestNonZeroIndex_L);  // Thời gian điểm 2 (thanh hiện tại)
+        double price2 = nearestNonZeroValue_L;   // Giá điểm 2 (giá cao nhất của thanh hiện tại)
+
+        // Gọi hàm vẽ Fibonacci Retracement
+        DrawFibonacciRetracement("FiboLevels", time1, price1, time2, price2);
+        Sleep(3000);
         return;
+
         if (CloseOrders)
             CheckClose();
 
@@ -293,4 +310,50 @@ bool FiboLevelsDelete(const long chart_ID = 0,          // chart's ID
     }
     //--- successful execution
     return (true);
+}
+
+//+-------------------------------------------------------------------
+// 
+// Tìm giá trị khác 0 gần nhất và vị trí của nó trong mảng
+void FindNearestNonZeroWithIndex(double &array[], int size, double &value, int &index)
+{
+    // Khởi tạo giá trị trả về
+    value = 0;
+    index = -1;
+    
+    // Duyệt mảng từ đầu để tìm giá trị khác 0
+    for (int i = 0; i < size; i++)
+    {
+        if (array[i] != 0)
+        {
+            value = array[i];
+            index = i;
+            return; // Kết thúc khi tìm thấy giá trị khác 0 đầu tiên
+        }
+    }
+}
+// Tìm giá trị khác 0 thứ n và vị trí của nó trong mảng
+void FindNthNonZeroWithIndex(double &array[], int size, int n, double &value, int &index)
+{
+    // Khởi tạo giá trị trả về
+    value = 0;
+    index = -1;
+    
+    // Đếm số giá trị khác 0 đã tìm thấy
+    int count = 0;
+    
+    // Duyệt mảng từ đầu để tìm giá trị khác 0
+    for (int i = 0; i < size; i++)
+    {
+        if (array[i] != 0)
+        {
+            count++;
+            if (count == n)
+            {
+                value = array[i];
+                index = i;
+                return; // Kết thúc khi tìm thấy giá trị khác 0 thứ n
+            }
+        }
+    }
 }
