@@ -9,13 +9,8 @@
 #property version   "3.07"
 string    Version = "3.07";
 
-#include "Translations\English.mqh"
-//#include "Translations\Arabic.mqh"
-//#include "Translations\Chinese.mqh"
-//#include "Translations\Portuguese.mqh" // Contributed by Matheus Sevaroli.
-//#include "Translations\Russian.mqh"
-//#include "Translations\Spanish.mqh"
-//#include "Translations\Ukrainian.mqh"
+#include "Translations/English.mqh"
+
 
 #property description "Calculates risk-based position size for your account."
 #property description "Allows trade execution based the calculation results.\r\n"
@@ -644,8 +639,21 @@ void OnTick()
     double fibo_2_price = fibo_1_price - (fibo_1_price - fibo_0_price) * 2;
 
     // GUI
-    sets.EntryLevel = fibo_1_5_price;
-    sets.StopLossLevel = fibo_2_price;
+
+    if(sets.TradeDirection == Short)
+    {
+        sets.EntryLevel = fibo_1_5_price - 300 * _Point;
+        sets.StopLossLevel = fibo_2_price + 300 * _Point;
+    } else{
+        sets.EntryLevel = fibo_1_5_price + 300 * _Point;
+        sets.StopLossLevel = fibo_2_price - 300 * _Point;
+
+    }
+
+    sets.TakeProfitsNumber = 1;
+    sets.TakeProfitLevel = (sets.EntryLevel - sets.StopLossLevel) * 2 + fibo_1_5_price; 
+
+    
     if (tEntryLevel != sets.EntryLevel)
     {
         // Check and adjust for TickSize granularity.
@@ -658,6 +666,12 @@ void OnTick()
     {
         tStopLossLevel = sets.StopLossLevel;
         ObjectSetDouble(ChartID(), ObjectPrefix + "StopLossLine", OBJPROP_PRICE, sets.StopLossLevel);
+    }
+    if (tTakeProfitLevel != sets.TakeProfitLevel)
+    {
+        tTakeProfitLevel = sets.TakeProfitLevel;
+
+        ObjectSetDouble(ChartID(), ObjectPrefix + "TakeProfitLine", OBJPROP_PRICE, sets.TakeProfitLevel);
     }
     ExtDialog.RefreshValues();
 
