@@ -19,7 +19,8 @@ string    Version = "3.07";
 
 #include "Position Sizer.mqh";
 #include "Position Sizer Trading.mqh";
-
+CTrade ExtTrade;
+CPositionInfo PositionInfo;
 // Default values for settings:
 double EntryLevel = 0;
 double StopLossLevel = 0;
@@ -550,7 +551,7 @@ int OnInit()
         }
     }
 
-    sets.EntryType = 1;
+    sets.EntryType = 1; // Default pending
     // If symbol change with a reset was enacted.
     if (is_InitControlsValues_required) ExtDialog.InitControlsValues();
 
@@ -675,8 +676,8 @@ void OnTick()
     }
     ExtDialog.RefreshValues();
 
-
-    if (sets.TrailingStopPoints > 0) DoTrailingStop();
+    AutoSLToEntry();
+    // if (sets.TrailingStopPoints > 0) DoTrailingStop();
 }
 
 void OnChartEvent(const int id,
@@ -1161,4 +1162,54 @@ void FindNthNonZeroWithIndex(double &array[], int size, int n, double &value, in
             }
         }
     }
+}
+
+//+------------------------------------------------------------------+
+//| Trailing stop                                                    |
+//+------------------------------------------------------------------+
+void AutoSLToEntry()
+{
+    if (PositionsTotal() > 0)
+    {
+        for (int index = 0; index < PositionsTotal(); index++)
+        {
+            /* code */
+
+            // int index = PositionsTotal() - 1; // Lấy số thứ tự của lệnh đầu tiên trong danh sách lệnh đang mở
+
+            if (!PositionInfo.SelectByIndex(index))
+            {
+                Print("Error selecting position:", GetLastError());
+                return;
+            }
+            double openPrice = PositionInfo.PriceOpen();
+            int positionType = PositionInfo.Type();
+            double oldStoploss = PositionInfo.StopLoss();
+            // Lấy giá hiện tại của cặp tiền
+            double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_LAST);
+            if (openPrice > PositionInfo.StopLoss())
+            {
+                if (MathAbs(currentPrice - openPrice) >= 1.0 * MathAbs(openPrice - oldStoploss))
+                {
+                    if (PositionInfo.Profit() > 0)
+                    {
+                        double newSl = openPrice;
+                        double currentTP = PositionInfo.TakeProfit(); // Lấy giá trị hiện tại của Take Profit
+                        ulong ticket = PositionGetTicket(index);
+                        bool result = ExtTrade.PositionModify(ticket, newSl, currentTP); // Thực hiện chỉnh sửa Stop Loss
+
+                        if (result == false)
+                        {
+                            // Xử lý lỗi nếu có
+                            Print("Lỗi khi chỉnh sửa Stop Loss: ", GetLastError());
+                            return;
+                        }
+                    return;
+                    }
+                }
+            }
+            else return;
+        }
+    }
+    return;
 }
