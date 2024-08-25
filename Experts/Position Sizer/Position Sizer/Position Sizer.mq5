@@ -162,8 +162,8 @@ CPositionSizeCalculator* ExtDialog;
 #resource "\\" + PATH_ZZ                           // Zigzag resource
 int ZZ_handle;
 double ZZ_Z[];
-double ZZ_H[];
-double ZZ_L[];
+double oldFiboLv0 = 0;
+double oldFiboLv1 = 0;
 
 // Global variables:
 bool Dont_Move_the_Panel_to_Default_Corner_X_Y = true;
@@ -602,6 +602,7 @@ void OnDeinit(const int reason)
     
     ObjectsDeleteAll(0, ObjectPrefix + "BE"); // Delete all BE lines and labels.
     
+    FiboLevelsDelete();
     ChartRedraw();
 }
 
@@ -610,19 +611,13 @@ void OnTick()
     if (CopyBuffer(ZZ_handle, 0, 0, BuffSize, ZZ_Z) <= 0)
         return;
     ArraySetAsSeries(ZZ_Z, true);
-    if (CopyBuffer(ZZ_handle, 1, 0, BuffSize, ZZ_H) <= 0)
-        return;
-    ArraySetAsSeries(ZZ_H, true);
-    if (CopyBuffer(ZZ_handle, 2, 0, BuffSize, ZZ_L) <= 0)
-        return;
-    ArraySetAsSeries(ZZ_L, true);
 
     // Khai báo biến để lưu giá trị và vị trí
     double nearestNonZeroValue_H, nearestNonZeroValue_L;
     int nearestNonZeroIndex_H, nearestNonZeroIndex_L;
 
-    FindNthNonZeroWithIndex(ZZ_Z, BuffSize, 3, nearestNonZeroValue_H, nearestNonZeroIndex_H);
     FindNthNonZeroWithIndex(ZZ_Z, BuffSize, 2, nearestNonZeroValue_L, nearestNonZeroIndex_L);
+    FindNthNonZeroWithIndex(ZZ_Z, BuffSize, 3, nearestNonZeroValue_H, nearestNonZeroIndex_H);
 
     // Giá trị thời gian và giá của hai điểm
     datetime time1 = iTime(Symbol(), 0, nearestNonZeroIndex_H); // Thời gian điểm 1 (cách đây 10 thanh)
@@ -638,6 +633,16 @@ void OnTick()
 
     double fibo_1_5_price = fibo_1_price - (fibo_1_price - fibo_0_price) * 1.5;
     double fibo_2_price = fibo_1_price - (fibo_1_price - fibo_0_price) * 2;
+
+    // Ntify when new entry detect
+    if (oldFiboLv0 != fibo_0_price || oldFiboLv1 != fibo_1_price)
+    {
+        Alert("New Entry Detect: ", fibo_1_5_price, " - ", fibo_2_price);
+        // PlaySound("notify.mp3");
+    }
+    
+    oldFiboLv0 = fibo_0_price;
+    oldFiboLv1 = fibo_1_price;
 
     // GUI
 
@@ -677,6 +682,7 @@ void OnTick()
     ExtDialog.RefreshValues();
 
     AutoSLToEntry();
+    Sleep(100);
     // if (sets.TrailingStopPoints > 0) DoTrailingStop();
 }
 
