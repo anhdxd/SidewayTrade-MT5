@@ -162,8 +162,8 @@ CPositionSizeCalculator* ExtDialog;
 #resource "\\" + PATH_ZZ                           // Zigzag resource
 int ZZ_handle;
 double ZZ_Z[];
-double oldFiboLv0 = 0;
-double oldFiboLv1 = 0;
+double oldHigh = 0;
+double oldLow = 0;
 
 // Global variables:
 bool Dont_Move_the_Panel_to_Default_Corner_X_Y = true;
@@ -180,20 +180,20 @@ int OldTakeProfitsNumber = -1;
 string SymbolForTrading;
 int Mouse_Last_X = 0, Mouse_Last_Y = 0; // For SL/TP hotkeys.
 
-int BuffSize = 50;
+int BuffSize = 100;
 int OnInit()
 {
 
     // Set show zigzag and fibo
 
-    ZZ_handle = iCustom(NULL, 0, I_ZZ, 8, 5, 2); // 8 for m5
+    ZZ_handle = iCustom(NULL, 0, I_ZZ, 6, 5, 2); // 8 for m5
 
     int subwindow = (int)ChartGetInteger(0, CHART_WINDOWS_TOTAL);
     //--- now make an attempt resulting in error
     if (!ChartIndicatorAdd(0, 0, ZZ_handle))
         PrintFormat("Failed to add zigzag indicator on %d chart window. Error code  %d",
                     subwindow, GetLastError());
-
+                    
     if (ZZ_handle == INVALID_HANDLE)
     {
         Print("Runtime error = ", GetLastError());
@@ -603,6 +603,7 @@ void OnDeinit(const int reason)
     ObjectsDeleteAll(0, ObjectPrefix + "BE"); // Delete all BE lines and labels.
     
     FiboLevelsDelete();
+    ChartIndicatorDelete(0,0,"ZigZag");
     ChartRedraw();
 }
 
@@ -619,6 +620,15 @@ void OnTick()
     FindNthNonZeroWithIndex(ZZ_Z, BuffSize, 2, nearestNonZeroValue_L, nearestNonZeroIndex_L);
     FindNthNonZeroWithIndex(ZZ_Z, BuffSize, 3, nearestNonZeroValue_H, nearestNonZeroIndex_H);
 
+    if (oldHigh == nearestNonZeroValue_H && oldLow == nearestNonZeroValue_L)
+    {
+        ExtDialog.RefreshValues();
+        return;
+    }
+
+    oldHigh = nearestNonZeroValue_H;
+    oldLow = nearestNonZeroValue_L;
+    
     // Giá trị thời gian và giá của hai điểm
     datetime time1 = iTime(Symbol(), 0, nearestNonZeroIndex_H); // Thời gian điểm 1 (cách đây 10 thanh)
     double price1 = nearestNonZeroValue_H;   // Giá điểm 1 (giá thấp nhất của thanh cách đây 10 thanh)
@@ -626,6 +636,7 @@ void OnTick()
     double price2 = nearestNonZeroValue_L;   // Giá điểm 2 (giá cao nhất của thanh hiện tại)
     // Gọi hàm vẽ Fibonacci Retracement
     const string name = "FiboLevels";
+    FiboLevelsDelete(0, name);
     DrawFibonacciRetracement("FiboLevels", time1, price1, time2, price2);
     
     double fibo_0_price = ObjectGetDouble(0, "FiboLevels", OBJPROP_PRICE, 0);
@@ -635,24 +646,24 @@ void OnTick()
     double fibo_2_price = fibo_1_price - (fibo_1_price - fibo_0_price) * 2;
 
     // Ntify when new entry detect
-    if (oldFiboLv0 != fibo_0_price || oldFiboLv1 != fibo_1_price)
+    if (oldHigh != fibo_0_price || oldLow != fibo_1_price)
     {
-        Alert("New Entry Detect: ", fibo_1_5_price, " - ", fibo_2_price);
+        //Alert("New Entry Detect: ", fibo_1_5_price, " - ", fibo_2_price);
         // PlaySound("notify.mp3");
     }
     
-    oldFiboLv0 = fibo_0_price;
-    oldFiboLv1 = fibo_1_price;
+    oldHigh = fibo_0_price;
+    oldLow = fibo_1_price;
 
     // GUI
-
+    int spread = (int)SymbolInfoInteger(NULL, SYMBOL_SPREAD);
     if(sets.TradeDirection == Short)
     {
-        sets.EntryLevel = fibo_1_5_price - 300 * _Point;
-        sets.StopLossLevel = fibo_2_price + 300 * _Point;
+        sets.EntryLevel = fibo_1_5_price - 15 * _Point;
+        sets.StopLossLevel = fibo_2_price + 15 * _Point +  spread * _Point;
     } else{
-        sets.EntryLevel = fibo_1_5_price + 300 * _Point;
-        sets.StopLossLevel = fibo_2_price - 300 * _Point;
+        sets.EntryLevel = fibo_1_5_price + 15 * _Point + spread * _Point;
+        sets.StopLossLevel = fibo_2_price - 15 * _Point;
 
     }
 
@@ -681,8 +692,7 @@ void OnTick()
     }
     ExtDialog.RefreshValues();
 
-    AutoSLToEntry();
-    Sleep(100);
+    //AutoSLToEntry();
     // if (sets.TrailingStopPoints > 0) DoTrailingStop();
 }
 
@@ -1190,12 +1200,12 @@ void AutoSLToEntry()
             }
             double openPrice = PositionInfo.PriceOpen();
             int positionType = PositionInfo.Type();
-            double oldStoploss = PositionInfo.StopLoss();
+            double stopLoss = PositionInfo.StopLoss();
             // Lấy giá hiện tại của cặp tiền
             double currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_LAST);
-            if (openPrice > PositionInfo.StopLoss())
+            if (openPrice > stopLoss)
             {
-                if (MathAbs(currentPrice - openPrice) >= 1.0 * MathAbs(openPrice - oldStoploss))
+                if (MathAbs(currentPrice - openPrice) >= 1.0 * MathAbs(openPrice - stopLoss))
                 {
                     if (PositionInfo.Profit() > 0)
                     {
